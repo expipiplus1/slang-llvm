@@ -578,7 +578,7 @@ void* LLVMDownstreamCompiler::getInterface(const Guid& guid)
         guid == ICastable::getTypeGuid() ||
         guid == IDownstreamCompiler::getTypeGuid())
     {
-        return static_cast<IDownstreamCompiler*>(this);
+        return this;
     }
     return nullptr;
 }
@@ -1052,6 +1052,34 @@ SlangResult LLVMDownstreamCompiler::compile(const CompileOptions& inOptions, IAr
 }
 
 } // namespace slang_llvm
+
+// A backwards compatible shim for _V3 which specified that it would only
+// return an IDownstreamCompiler*
+//
+// As such, we should only return something which matches the requested
+// interface, as well as IDownstreamCompiler.
+extern "C" SLANG_DLL_EXPORT SlangResult createLLVMDownstreamCompiler_V3(const SlangUUID& intfGuid, Slang::IDownstreamCompiler** out)
+{
+    Slang::ComPtr<slang_llvm::LLVMDownstreamCompiler> compiler(new slang_llvm::LLVMDownstreamCompiler);
+
+    // Cast to the IDownstreamCompiler to return safely.
+    // Use getInterface rather than castAs as the latter may return references
+    // to internal implementaions, which may not be compatible with the
+    // requested interface (and vice-versa, an internal interface matching the
+    // requested interface might not be an IDownstreamCompiler).
+    Slang::IDownstreamCompiler* const ptr =
+        reinterpret_cast<Slang::IDownstreamCompiler*>(
+            compiler->getInterface(Slang::IDownstreamCompiler::getTypeGuid()));
+    const bool matchesRequestedInterface = compiler->getInterface(intfGuid);
+    if(ptr && matchesRequestedInterface)
+    {
+        compiler.detach();
+        *out = ptr;
+        return SLANG_OK;
+    }
+
+    return SLANG_E_NO_INTERFACE;
+}
 
 extern "C" SLANG_DLL_EXPORT SlangResult createLLVMDownstreamCompiler_V4(const SlangUUID& intfGuid, void** out)
 {
